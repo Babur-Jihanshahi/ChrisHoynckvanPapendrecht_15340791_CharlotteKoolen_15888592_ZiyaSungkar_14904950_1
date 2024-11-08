@@ -10,7 +10,7 @@ def mandelbrot(c_points, max_iter, escape_radius) -> tuple[int, int]:
     '''
     # iteration_count = np.zeros(c_points.shape)
     # mandelbrot_set = np.zeros(c_points.shape, dtype=bool)
-    number_inside = 0
+    number_outside = 0
     total_numbers = 0
     for i in range(c_points.shape[0]):
         for j in range(c_points.shape[1]):
@@ -22,14 +22,14 @@ def mandelbrot(c_points, max_iter, escape_radius) -> tuple[int, int]:
                 # update of z
                 z = z**2 + c
                 if abs(z) > escape_radius:
-                    number_inside+=1
+                    number_outside+=1
                     # mandelbrot_set[i, j] = False
                     # iteration_count[i, j] =iteration
                     break
             # else:
                 # mandelbrot_set[i, j] = True
                 # iteration_count[i, j] = max_iter
-    return (total_numbers, number_inside)
+    return (total_numbers, number_outside)
 
 
 
@@ -40,3 +40,12 @@ def worker_function(xs):
 
     total_numbs, number_ins = mandelbrot(cpts,s, 2)
     return (total_numbs, number_ins)
+
+def worker_function_sampling(pars):
+    # add own sampling method instead of mandelbrot, and add sampling specific parameters to grid and bound. 
+    # The function called (instead of mandelbrot) should essentially be the same as non-parallelized function. 
+    grid, grid_size, bound = pars 
+    total, out = mandelbrot(grid, bound, 2)
+
+    # note here, the actual grid is not returned, only the grid size
+    return (total, out), (grid_size, bound) 
