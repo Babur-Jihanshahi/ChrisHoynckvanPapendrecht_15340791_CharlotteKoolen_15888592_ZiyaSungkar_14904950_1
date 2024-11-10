@@ -1,4 +1,4 @@
-grid size, maximum number of iterations, total points, points inside Mandelbrot
+grid_size, max_iterations, total_points, points_inside
 10, 10, 100, 82
 10, 20, 100, 84
 10, 50, 100, 86
