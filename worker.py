@@ -49,3 +49,35 @@ def worker_function_sampling(pars):
 
     # note here, the actual grid is not returned, only the grid size
     return (total, out), (grid_size, bound) 
+
+def random_points_generator(num_samples: int) -> np.ndarray:
+    """
+    Generate random points for the Monte Carlo Integration
+    """
+    real_parts = np.random.uniform(-2.0, 1.0, num_samples)
+    imag_parts = np.random.uniform(-1.5, 1.5, num_samples)
+    return real_parts + 1j * imag_parts
+
+def monte_carlo_calc(points: np.ndarray, max_iter: int) -> tuple[int, int]:
+    points_inside = 0
+    total_points = len(points)
+
+    for c in points:
+        z = 0
+        for _ in range(max_iter):
+            z = z*z + c
+            if abs(z) > 2.0:
+                break
+        else:
+            points_inside += 1
+
+    return total_points, points_inside
+    
+def worker_pure(pars):
+    """
+    Woker function for the Monte Carlo sampling
+    """
+    _, grid_size, max_iter = pars
+    points = random_points_generator(grid_size * grid_size)
+    total_points, points_inside = monte_carlo_calc(points, max_iter)
+    return (total_points, points_inside), (grid_size, max_iter)
