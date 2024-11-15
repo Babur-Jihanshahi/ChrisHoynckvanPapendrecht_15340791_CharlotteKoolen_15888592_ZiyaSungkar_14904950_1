@@ -4,6 +4,86 @@ import logging
 import scipy.stats.qmc as sampling
 import orthogonal
 
+def importance_random_points(num_samples, rand):
+    """
+    random sampling improved by implementing importance sampling
+    """
+    np.random.seed(rand)
+
+    # split the sampling between focused and pure random
+    focused_samples = int(num_samples * 0.7)
+    random_samples = num_samples - focused_samples
+    
+    points = []
+    # Focused sampling around boundary regions
+    boundary_points = int(focused_samples * 0.6)        # points along main cardioid boundary
+    bulb_points = focused_samples - boundary_points
+
+    # Sampling along the main cardoid boundary c = 1/2 * e^(i*theta) - 1/4 * e^(2*i*theta), 0 <= theta <= 2*pi
+    t = np.linspace(0, 2*np.pi, boundary_points)
+    r = 0.25 * (1 - np.cos(t))
+    noise = np.random.normal(0, 0.05, boundary_points)  
+    x = 0.25 * (np.cos(t) - 2) + noise * np.cos(t)
+    y = 0.25 * np.sin(t) + noise * np.sin(t)
+    points.extend(x + 1j * y)
+
+    # Sampling period 2 bulb
+    theta = np.random.uniform(0, 2*np.pi, bulb_points)
+    r = np.random.normal(0.25, 0.05, bulb_points)
+    x = -1 + r * np.cos(theta)
+    y = r * np.sin(theta)
+    points.extend(x + 1j * y)
+
+    # Pure random samples
+    real_parts = np.random.uniform(-2.0, 1.0, random_samples)
+    imag_parts = np.random.uniform(-1.5, 1.5, random_samples)
+    points.extend(real_parts + 1j * imag_parts)
+    
+    return np.array(points)
+
+def importance_orthogonal_sample(n, rand):
+    """ 
+    orthogonal sampling method with added importance sampling
+    """
+    MAJOR = n
+    SAMPLES = MAJOR * MAJOR
+    scale = 3 / SAMPLES
+    np.random.seed(rand)
+
+    # Create 2D arrays for xlist and ylist with sequential indices
+    xlist = np.array([[i * MAJOR + j for j in range(MAJOR)] for i in range(MAJOR)])
+    ylist = xlist.copy()
+
+    # Shuffle each row of xlist and ylist independently
+    for i in range(MAJOR):
+        np.random.shuffle(xlist[i])  
+        np.random.shuffle(ylist[i])  
+
+    coordinates = []
+    for i in range(MAJOR):
+        for j in range(MAJOR):
+            # Determind if this point should be importance-sampled (70% chance)
+            if np.random.random() < 0.7:
+                if np.random.random() < 0.6: # 60% chance for main cardioid
+                    # sample near the main cardioid
+                    theta = np.random.uniform(0, 2 * np.pi)
+                    r = 0.25 * (1 - np.cos(theta))
+                    noise = 0.05 * np.random.normal()   # add controlled noise
+                    x = 0.25 * (np.cos(theta) - 2) + noise * np.cos(theta)
+                    y = 0.25 * np.sin(theta) + noise * np.sin(theta)
+                else:   # 40 % chance for the period-2 bulb
+                    theta = np.random.uniform(0, 2 * np.pi)
+                    r = 0.25 + 0.05 * np.random.normal()
+                    x = -1 + r * np.cos(theta)
+                    y = r * np.sin(theta)
+            else:
+                # Calculate x and y positions with added stochasticity
+                x = -2 + scale * (xlist[i][j] + np.random.uniform(0, 1))
+                y = -1.5 + scale * (ylist[j][i] + np.random.uniform(0, 1))
+
+            coordinates.append((x, y))
+    return np.array(coordinates)
+
 def setup_logger(log_file='logs.txt'):
     # Set up basic configuration for logging
     logger = logging.getLogger(current_process().name)
@@ -129,6 +209,35 @@ def worker_orthogonal(pars):
 
     # note here, the actual grid is not returned, only the grid size
     return (total, out), (grid_size, bound, run)
+
+def worker_importance_random(pars):
+    """ 
+    Worker function for improved random sampling
+    """
+    grid_size, max_iter, run, rand = pars
+    logger, file_handler = setup_logger('logs_improved_random.txt')
+    process_name = current_process().name
+
+    logger.debug(f"I am {process_name} handling parameters: {grid_size, max_iter, run}")
+    points = importance_random_points(grid_size * grid_size, rand)
+    
+    total_points, points_outside = mandelbrot_sampling(points, max_iter, 2)
+    return (total_points, points_outside), (grid_size, max_iter, run)
+
+def worker_importance_orthogonal(pars):
+    """ 
+    Worker function for improved orthogonal sampling
+    """
+    grid_size, max_iter, run, rand = pars
+    logger, file_handler = setup_logger('logs_improved_orthogonal.txt')
+    process_name = current_process().name
+
+    logger.debug(f"I am {process_name} handling parameters: {grid_size, max_iter, run}")
+    points = importance_orthogonal_sample(grid_size, rand)
+    c_points = points[:, 0] + 1j * points[:, 1]
+
+    total_points, points_outside = mandelbrot_sampling(c_points, max_iter, 2)
+    return(total_points, points_outside), (grid_size, max_iter, run)
 
 def random_points_generator(num_samples: int, rand) -> np.ndarray:
     """
