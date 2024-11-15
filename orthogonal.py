@@ -28,7 +28,7 @@ def orthogonal_sample(n, rand):
 
     coordinates = np.array(coordinates)
     return coordinates
-
+# psst
 def plot_orthogonal(coordinates, samples):
     plt.figure(figsize=(6, 8))
     plt.scatter(coordinates[:, 0], coordinates[:, 1])

@@ -59,12 +59,7 @@ def mandelbrot(c_points, max_iter, escape_radius) -> tuple[int, int]:
                 z = z**2 + c
                 if abs(z) > escape_radius:
                     number_outside+=1
-                    # mandelbrot_set[i, j] = False
-                    # iteration_count[i, j] =iteration
                     break
-            # else:
-                # mandelbrot_set[i, j] = True
-                # iteration_count[i, j] = max_iter
     return (total_numbers, number_outside)
 
 
@@ -81,6 +76,30 @@ def hyper(gridsize, seed):
      orth_samples = orth_sampler.random(n=gridsize).astype(np.float32)
      return orth_samples
 
+def random_points_generator(num_samples: int, rand) -> np.ndarray:
+    """
+    Generate random points for the Monte Carlo Integration
+    """
+    np.random.seed(rand)
+    real_parts = np.random.uniform(-2.0, 1.0, num_samples)
+    imag_parts = np.random.uniform(-1.5, 1.5, num_samples)
+    return real_parts + 1j * imag_parts
+
+def get_example_samples(samples, random_seed):
+    latin_samples = hyper(samples, random_seed)
+    orth_sampels = orthogonal.orthogonal_sample(int(np.sqrt(samples)), random_seed)
+
+    real = -2 + latin_samples[:, 0]*3
+    imag = -1.5 + latin_samples[:, 1]*3
+
+    np.random.seed(random_seed)
+    real_parts = np.random.uniform(-2.0, 1.0, samples)
+    imag_parts = np.random.uniform(-1.5, 1.5, samples)
+    rand_points = zip(real_parts, imag_parts)
+    lat_points = zip(real, imag)
+    
+    return(orth_sampels, np.array(list(lat_points)), np.array(list(rand_points)))
+
 def worker_function_sampling(pars):
     # add own sampling method instead of mandelbrot, and add sampling specific parameters to grid and bound. 
     # The function called (instead of mandelbrot) should essentially be the same as non-parallelized function. 
@@ -96,8 +115,6 @@ def worker_function_sampling(pars):
     file_handler.flush()
 
     points = hyper(grid_size**2, random_seed) 
-
-    
     min_x, max_x = -2, 1
     min_y, max_y = -1.5, 1.5
     real = min_x + points[:, 0]*3
@@ -130,14 +147,7 @@ def worker_orthogonal(pars):
     # note here, the actual grid is not returned, only the grid size
     return (total, out), (grid_size, bound, run)
 
-def random_points_generator(num_samples: int, rand) -> np.ndarray:
-    """
-    Generate random points for the Monte Carlo Integration
-    """
-    np.random.seed(rand)
-    real_parts = np.random.uniform(-2.0, 1.0, num_samples)
-    imag_parts = np.random.uniform(-1.5, 1.5, num_samples)
-    return real_parts + 1j * imag_parts
+
 
 # def monte_carlo_calc(points: np.ndarray, max_iter: int) -> tuple[int, int]:
 #     points_inside = 0
