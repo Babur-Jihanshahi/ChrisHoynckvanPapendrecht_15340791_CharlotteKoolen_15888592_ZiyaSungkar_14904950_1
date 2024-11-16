@@ -2,7 +2,8 @@ import numpy as np
 from multiprocessing import current_process
 import logging
 import scipy.stats.qmc as sampling
-import orthogonal
+from scipy.spatial import cKDTree
+from orthogonal import orthogonal_sample
 
 def importance_random_points(num_samples, rand):
     """
@@ -211,33 +212,33 @@ def worker_orthogonal(pars):
 
 def worker_importance_random(pars):
     """ 
-    Worker function for improved random sampling
+    Worker function for improved random sampling using simple random point generation
     """
-    grid_size, base_iter, run, rand = pars  # base_iter instead of max_iter
+    grid_size, base_iter, run, rand, border_points, border_tree = pars
     logger, file_handler = setup_logger('logs_improved_random.txt')
     process_name = current_process().name
-
-    border_points = get_border_points()
-    logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
-    points = importance_random_points(grid_size * grid_size, rand)
     
-    total_points, points_outside = adaptive_mandelbrot_sampling(points, border_points, base_iter)
+    logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
+    points = random_points_generator(grid_size * grid_size, rand)
+    
+    # Use pre-computed border points and tree
+    total_points, points_outside = adaptive_mandelbrot_sampling(points, border_points, base_iter, border_tree)
     return (total_points, points_outside), (grid_size, base_iter, run)
 
 def worker_importance_orthogonal(pars):
     """ 
-    Worker function for improved orthogonal sampling
+    Worker function for improved orthogonal sampling using simple orthogonal sampling
     """
-    grid_size, base_iter, run, rand = pars  # base_iter instead of max_iter
+    grid_size, base_iter, run, rand, border_points, border_tree = pars
     logger, file_handler = setup_logger('logs_improved_orthogonal.txt')
     process_name = current_process().name
-
-    border_points = get_border_points()
+    
     logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
-    points = importance_orthogonal_sample(grid_size, rand)
+    points = orthogonal_sample(grid_size, rand)
     c_points = points[:, 0] + 1j * points[:, 1]
     
-    total_points, points_outside = adaptive_mandelbrot_sampling(c_points, border_points, base_iter)
+    # Use pre-computed border points and tree
+    total_points, points_outside = adaptive_mandelbrot_sampling(c_points, border_points, base_iter, border_tree)
     return (total_points, points_outside), (grid_size, base_iter, run)
 
 def random_points_generator(num_samples: int, rand) -> np.ndarray:
@@ -311,14 +312,20 @@ def get_border_points():
 
     return border_points
 
-def min_distance(point, border_points):
+def min_distance(point, border_points, tree=None):
     """
-    Calculate minimum distance from a point to any border point
+    Calculate minimum distance using KD-tree if available
     """
-    distances = np.abs(point - (border_points[:, 0] + 1j*border_points[:, 1]))
-    return np.min(distances)
+    if tree is not None:
+        point_2d = np.array([[point.real, point.imag]])
+        distance, _ = tree.query(point_2d, k=1)
+        return distance[0]
+    else:
+        # Fallback to original method
+        distances = np.abs(point - (border_points[:, 0] + 1j*border_points[:, 1]))
+        return np.min(distances)
 
-def adaptive_mandelbrot_sampling(c_points, border_points, base_iter=15):
+def adaptive_mandelbrot_sampling(c_points, border_points, base_iter=15, tree=None):
     """ 
     Mandelbrot sampling with adaptive iterations based on border proximity
     """
@@ -326,14 +333,15 @@ def adaptive_mandelbrot_sampling(c_points, border_points, base_iter=15):
     total_numbers = len(c_points)
 
     for c in c_points: 
-        # calc distance to the border
-        dist = min_distance(c, border_points)
+        # calc distance to the border using KD-tree if available
+        dist = min_distance(c, border_points, tree)
 
         # determine iterations based on distance
         if dist < 0.1:
-            max_iter = 10000    # high iterations near the border (more interesting)
+            max_iter = 10000    # high iterations near the border
         else:
             max_iter = base_iter 
+        
         z = 0
         for iteration in range(max_iter):
             z = z**2 + c
