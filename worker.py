@@ -161,13 +161,7 @@ def hyper(gridsize, seed):
      orth_samples = orth_sampler.random(n=gridsize).astype(np.float32)
      return orth_samples
 
-def worker_function_sampling(pars):
-    # add own sampling method instead of mandelbrot, and add sampling specific parameters to grid and bound. 
-    # The function called (instead of mandelbrot) should essentially be the same as non-parallelized function. 
-    # logger = logging.getLogger()
-    # logger.setLevel(logging.DEBUG)
-    # logging.debug("test")
-
+def worker_LHS(pars):
     grid_size, bound, run, random_seed = pars
     logger, file_handler = setup_logger()
     process_name = current_process().name
@@ -177,16 +171,12 @@ def worker_function_sampling(pars):
 
     points = hyper(grid_size**2, random_seed) 
 
-    
-    min_x, max_x = -2, 1
-    min_y, max_y = -1.5, 1.5
-    real = min_x + points[:, 0]*3
-    imag = min_y + points[:, 1]*3
+    real = -2 + points[:, 0]*3
+    imag = -1.5 + points[:, 1]*3
     c_points = real + 1j * imag
     points = []
 
-    logger.debug(f"I am {process_name} sample size: {c_points.size}")
-
+    logger.debug(f"I am {process_name}, handled sample size: {len(real)}")
 
     total, out = mandelbrot_sampling(c_points, bound, 2)
 
@@ -201,45 +191,14 @@ def worker_orthogonal(pars):
     logger.debug(f"I am {process_name} handling parameters: {grid_size, bound, run}")
     file_handler.flush()
 
-    points = orthogonal.orthogonal_sample(grid_size, random_seed)
+    points = orthogonal_sample(grid_size, random_seed)
     c_points = points[:, 0] + 1j * points[:,1]
 
-    logger.debug(f"I am {process_name} sample size: {c_points.size}")
+    logger.debug(f"I am {process_name} sample size: {c_points.size/2}")
     total, out = mandelbrot_sampling(c_points, bound, 2)
 
     # note here, the actual grid is not returned, only the grid size
     return (total, out), (grid_size, bound, run)
-
-def worker_importance_random(pars):
-    """ 
-    Worker function for improved random sampling using simple random point generation
-    """
-    grid_size, base_iter, run, rand, border_points, border_tree = pars
-    logger, file_handler = setup_logger('logs_improved_random.txt')
-    process_name = current_process().name
-    
-    logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
-    points = random_points_generator(grid_size * grid_size, rand)
-    
-    # Use pre-computed border points and tree
-    total_points, points_outside = adaptive_mandelbrot_sampling(points, border_points, base_iter, border_tree)
-    return (total_points, points_outside), (grid_size, base_iter, run)
-
-def worker_importance_orthogonal(pars):
-    """ 
-    Worker function for improved orthogonal sampling using simple orthogonal sampling
-    """
-    grid_size, base_iter, run, rand, border_points, border_tree = pars
-    logger, file_handler = setup_logger('logs_improved_orthogonal.txt')
-    process_name = current_process().name
-    
-    logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
-    points = orthogonal_sample(grid_size, rand)
-    c_points = points[:, 0] + 1j * points[:, 1]
-    
-    # Use pre-computed border points and tree
-    total_points, points_outside = adaptive_mandelbrot_sampling(c_points, border_points, base_iter, border_tree)
-    return (total_points, points_outside), (grid_size, base_iter, run)
 
 def random_points_generator(num_samples: int, rand) -> np.ndarray:
     """
@@ -250,20 +209,15 @@ def random_points_generator(num_samples: int, rand) -> np.ndarray:
     imag_parts = np.random.uniform(-1.5, 1.5, num_samples)
     return real_parts + 1j * imag_parts
 
-# def monte_carlo_calc(points: np.ndarray, max_iter: int) -> tuple[int, int]:
-#     points_inside = 0
-#     total_points = len(points)
+def random_points_generator_importance(num_samples: int, rand) -> np.ndarray:
+    """
+    Generate random points for the Monte Carlo Integration
+    """
+    np.random.seed(rand)
+    real_parts = np.random.uniform(-2.0, 1.0, num_samples)
+    imag_parts = np.random.uniform(-1.5, 1.5, num_samples)
+    return real_parts, imag_parts
 
-#     for c in points:
-#         z = 0
-#         for _ in range(max_iter):
-#             z = z*z + c
-#             if abs(z) > 2.0:
-#                 break
-#         else:
-#             points_inside += 1
-
-#     return total_points, points_inside
     
 def worker_pure(pars):
     """
@@ -276,9 +230,122 @@ def worker_pure(pars):
     logger.debug(f"I am {process_name} handling parameters: {grid_size, max_iter, run}")
     file_handler.flush()
     points = random_points_generator(grid_size * grid_size, rand)
-    logger.debug(f"I am {process_name} sample size: {points.size}")
+    logger.debug(f"I am {process_name}, handled sample size: {points.size/2}")
     total_points, points_outside = mandelbrot_sampling(points, max_iter, 2)
     return (total_points, points_outside), (grid_size, max_iter, run)
+
+def worker_importance_random(pars):
+    """ 
+    Worker function for improved random sampling using simple random point generation
+    """
+    grid_size, run, rand, border_points, border_tree = pars
+    logger, file_handler = setup_logger('logs.txt')
+    process_name = current_process().name
+    
+    logger.debug(f"I am {process_name}, Method:Random, handling parameters: {grid_size, run}")
+    file_handler.flush()
+    real, imag = random_points_generator_importance(grid_size * grid_size, rand)
+    
+    # Use pre-computed border points and tree
+    total_points, points_outside = adaptive_mandelbrot_sampling(real, imag, border_points, border_tree)
+    logger.debug(f"I am {process_name}, handled sample size: {len(real)}")
+    file_handler.flush()
+
+    return (total_points, points_outside), (grid_size, run)
+
+def worker_importance_orthogonal(pars):
+    """ 
+    Worker function for improved orthogonal sampling using simple orthogonal sampling
+    """
+    grid_size, run, rand, border_points, border_tree = pars
+    logger, file_handler = setup_logger('logs.txt')
+    
+    process_name = current_process().name
+    
+    logger.debug(f"I am {process_name}, Method: Orthogonal, handling parameters: {grid_size, run}")
+    file_handler.flush()
+    
+    points = orthogonal_sample(grid_size, rand)
+    # c_points = points[:, 0] + 1j * points[:, 1]
+    
+    # Use pre-computed border points and tree
+    total_points, points_outside = adaptive_mandelbrot_sampling(points[:, 0], points[:, 1], border_points, border_tree)
+
+    logger.debug(f"I am {process_name}, handled sample size: {points.size/2}")
+    file_handler.flush()
+
+    return (total_points, points_outside), (grid_size, run)
+
+def worker_importance_LHS(pars):
+    grid_size, run, rand, border_points, border_tree = pars
+    logger, file_handler = setup_logger('logs.txt')
+    process_name = current_process().name
+
+    logger.debug(f"I am {process_name}, Method: LHS, handling parameters: {grid_size, run}")
+    file_handler.flush()
+
+    points = hyper(grid_size**2, rand) 
+
+    real = -2 + points[:, 0]*3
+    imag = -1.5 + points[:, 1]*3
+    
+
+    total_points, points_outside = adaptive_mandelbrot_sampling(real, imag, border_points, border_tree)
+
+    logger.debug(f"I am {process_name}, handled sample size: {len(real)}")
+    file_handler.flush()
+
+    return (total_points, points_outside), (grid_size, run)
+
+
+
+def min_distance(reals, imags, border_points, base_iter, tree=None):
+    """
+    Calculate minimum distance using KD-tree if available
+    """
+    points = np.column_stack((reals, imags))
+    if tree is not None:
+        # point_2d = np.array([point])
+        distances, _ = tree.query(points, k=1)
+        # return distance[0]
+    else:
+        distances = np.array([
+            np.min(np.sqrt((reals[i] - border_points[:, 0])**2 + (imags[i] - border_points[:, 1])**2))
+            for i in range(len(reals))
+        ])
+        # Fallback to original method
+        # distances = np.sqrt((point[0] - border_points[:, 0])**2 + (point[1]-border_points[:, 1])**2)
+        # return np.min(distances)
+    iters = np.where(distances < 0.05, 12000, base_iter)
+    return iters
+
+def adaptive_mandelbrot_sampling(real, imag, border_points, tree=None, base_iter=15):
+    """ 
+    Mandelbrot sampling with adaptive iterations based on border proximity
+    """
+    
+    iters = min_distance(real, imag, border_points, base_iter, tree)
+    number_outside = 0
+    total_numbers = len(real)
+    c_points = real + 1j * imag
+    for i in range(len(real)): 
+        # calc distance to the border using KD-tree if available
+        # dist = min_distance([real[i], imag[i]], border_points, tree)
+
+        # # determine iterations based on distance
+        # if dist < 0.05:
+        #     max_iter = 12000    # high iterations near the border
+        # else:
+        #     max_iter = base_iter 
+        
+        c = c_points[i]
+        z = 0
+        for _ in range(iters[i]):
+            z = z**2 + c
+            if abs(z) > 2:
+                number_outside += 1
+                break
+    return total_numbers, number_outside
 
 def get_border_points():
     """
@@ -311,41 +378,3 @@ def get_border_points():
     border_points = np.array(list(set_quick - set_accurate))
 
     return border_points
-
-def min_distance(point, border_points, tree=None):
-    """
-    Calculate minimum distance using KD-tree if available
-    """
-    if tree is not None:
-        point_2d = np.array([[point.real, point.imag]])
-        distance, _ = tree.query(point_2d, k=1)
-        return distance[0]
-    else:
-        # Fallback to original method
-        distances = np.abs(point - (border_points[:, 0] + 1j*border_points[:, 1]))
-        return np.min(distances)
-
-def adaptive_mandelbrot_sampling(c_points, border_points, base_iter=15, tree=None):
-    """ 
-    Mandelbrot sampling with adaptive iterations based on border proximity
-    """
-    number_outside = 0
-    total_numbers = len(c_points)
-
-    for c in c_points: 
-        # calc distance to the border using KD-tree if available
-        dist = min_distance(c, border_points, tree)
-
-        # determine iterations based on distance
-        if dist < 0.1:
-            max_iter = 10000    # high iterations near the border
-        else:
-            max_iter = base_iter 
-        
-        z = 0
-        for iteration in range(max_iter):
-            z = z**2 + c
-            if abs(z) > 2:
-                number_outside += 1
-                break
-    return total_numbers, number_outside
