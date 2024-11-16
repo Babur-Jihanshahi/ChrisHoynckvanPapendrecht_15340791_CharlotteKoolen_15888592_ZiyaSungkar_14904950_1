@@ -19,7 +19,7 @@ def importance_random_points(num_samples, rand):
     # Main cardioid sampling (60% of focused samples)
     cardioid_points = int(focused_samples * 0.6)
     t = np.linspace(0, 2*np.pi, cardioid_points)
-    noise = np.random.normal(0, 0.1, cardioid_points)
+    noise = np.random.normal(0, 0.05, cardioid_points)
     
     # Using the exact cardioid formula
     x = 0.25 * (2 * np.cos(t) - np.cos(2*t)) + noise * np.cos(t)
@@ -66,13 +66,13 @@ def importance_orthogonal_sample(n, rand):
                 if np.random.random() < 0.6:
                     # Main cardioid using exact formula
                     theta = np.random.uniform(0, 2*np.pi)
-                    noise = 0.1 * np.random.normal()
+                    noise = 0.05 * np.random.normal()
                     x = 0.25 * (2 * np.cos(theta) - np.cos(2*theta)) + noise * np.cos(theta)
                     y = 0.25 * (2 * np.sin(theta) - np.sin(2*theta)) + noise * np.sin(theta)
                 else:
                     # Period-2 bulb using exact formula
                     theta = np.random.uniform(0, 2*np.pi)
-                    noise = 0.1 * np.random.normal()
+                    noise = 0.02 * np.random.normal()
                     x = -1 + 0.25 * np.cos(theta) + noise * np.cos(theta)
                     y = 0.25 * np.sin(theta) + noise * np.sin(theta)
             else:
@@ -213,32 +213,30 @@ def worker_importance_random(pars):
     """ 
     Worker function for improved random sampling
     """
-    grid_size, base_iter, run, rand = pars  # base_iter instead of max_iter
+    grid_size, max_iter, run, rand = pars
     logger, file_handler = setup_logger('logs_improved_random.txt')
     process_name = current_process().name
 
-    border_points = get_border_points()
-    logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
+    logger.debug(f"I am {process_name} handling parameters: {grid_size, max_iter, run}")
     points = importance_random_points(grid_size * grid_size, rand)
     
-    total_points, points_outside = adaptive_mandelbrot_sampling(points, border_points, base_iter)
-    return (total_points, points_outside), (grid_size, base_iter, run)
+    total_points, points_outside = mandelbrot_sampling(points, max_iter, 2)
+    return (total_points, points_outside), (grid_size, max_iter, run)
 
 def worker_importance_orthogonal(pars):
     """ 
     Worker function for improved orthogonal sampling
     """
-    grid_size, base_iter, run, rand = pars  # base_iter instead of max_iter
+    grid_size, max_iter, run, rand = pars
     logger, file_handler = setup_logger('logs_improved_orthogonal.txt')
     process_name = current_process().name
 
-    border_points = get_border_points()
-    logger.debug(f"I am {process_name} handling parameters: {grid_size, base_iter, run}")
+    logger.debug(f"I am {process_name} handling parameters: {grid_size, max_iter, run}")
     points = importance_orthogonal_sample(grid_size, rand)
     c_points = points[:, 0] + 1j * points[:, 1]
-    
-    total_points, points_outside = adaptive_mandelbrot_sampling(c_points, border_points, base_iter)
-    return (total_points, points_outside), (grid_size, base_iter, run)
+
+    total_points, points_outside = mandelbrot_sampling(c_points, max_iter, 2)
+    return(total_points, points_outside), (grid_size, max_iter, run)
 
 def random_points_generator(num_samples: int, rand) -> np.ndarray:
     """
@@ -278,66 +276,3 @@ def worker_pure(pars):
     logger.debug(f"I am {process_name} sample size: {points.size}")
     total_points, points_outside = mandelbrot_sampling(points, max_iter, 2)
     return (total_points, points_outside), (grid_size, max_iter, run)
-
-def get_border_points():
-    """
-    Generates border points of the Mandelbrot set using high/low iteration comparison
-    """
-    real = np.linspace(-2.0, 1.0, 300)
-    imag = np.linspace(-1.5, 1.5, 300)
-
-    def mandelbrot_border(real_grid, imag_grid, max_iter):
-        inside = []
-        for i in real_grid:
-            for j in imag_grid:
-                c = i + 1j * j
-                z = 0
-                for _ in range(max_iter):
-                    z = z**2 + c
-                    if abs(z) > 2:
-                        break
-                else:
-                    inside.append((i, j))
-        return np.array(inside)
-
-    # Get two sets with different iteration counts
-    accurate_set = mandelbrot_border(real, imag, 10000)
-    quick_set = mandelbrot_border(real, imag, 15)
-
-    # Get border points through set difference
-    set_accurate = set(map(tuple, accurate_set))
-    set_quick = set(map(tuple, quick_set))
-    border_points = np.array(list(set_quick - set_accurate))
-
-    return border_points
-
-def min_distance(point, border_points):
-    """
-    Calculate minimum distance from a point to any border point
-    """
-    distances = np.abs(point - (border_points[:, 0] + 1j*border_points[:, 1]))
-    return np.min(distances)
-
-def adaptive_mandelbrot_sampling(c_points, border_points, base_iter=15):
-    """ 
-    Mandelbrot sampling with adaptive iterations based on border proximity
-    """
-    number_outside = 0
-    total_numbers = len(c_points)
-
-    for c in c_points: 
-        # calc distance to the border
-        dist = min_distance(c, border_points)
-
-        # determine iterations based on distance
-        if dist < 0.1:
-            max_iter = 10000    # high iterations near the border (more interesting)
-        else:
-            max_iter = base_iter 
-        z = 0
-        for iteration in range(max_iter):
-            z = z**2 + c
-            if abs(z) > 2:
-                number_outside += 1
-                break
-    return total_numbers, number_outside
