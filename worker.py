@@ -147,22 +147,6 @@ def worker_orthogonal(pars):
     # note here, the actual grid is not returned, only the grid size
     return (total, out), (grid_size, bound, run)
 
-
-
-# def monte_carlo_calc(points: np.ndarray, max_iter: int) -> tuple[int, int]:
-#     points_inside = 0
-#     total_points = len(points)
-
-#     for c in points:
-#         z = 0
-#         for _ in range(max_iter):
-#             z = z*z + c
-#             if abs(z) > 2.0:
-#                 break
-#         else:
-#             points_inside += 1
-
-#     return total_points, points_inside
     
 def worker_pure(pars):
     """
