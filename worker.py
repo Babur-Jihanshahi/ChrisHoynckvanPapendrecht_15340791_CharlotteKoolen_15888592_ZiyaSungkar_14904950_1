@@ -317,44 +317,72 @@ def min_distance(reals, imags, border_points, base_iter, tree=None):
         # Fallback to original method
         # distances = np.sqrt((point[0] - border_points[:, 0])**2 + (point[1]-border_points[:, 1])**2)
         # return np.min(distances)
-    iters = np.where(distances < 3/np.sqrt(len(reals)), base_iter, 15)
-    is_inside = np.where(distances<3/np.sqrt(len(reals)), True, False)
-    return iters, is_inside
+    # iters = np.where(distances < 3/100000, base_iter, 15)
+    # is_inside = np.where(distances<3/100000, True, False)
+    return distances
 
-def weighting_scheme(reals, imags, border_points, base_iter, rand, tree=None, rejection_prob=0.4):
+def weighting_scheme(reals, imags, border_points, base_iter, tree, rand):
     '''
     implements rejection scheme and weight of point that counters the bias. 
     Used for imprtance sampling
     '''
     np.random.seed(rand)
-    iterations, inside = min_distance(reals, imags, border_points, base_iter, tree)  # Boolean array of shape (N,)
+    # iterations, inside = min_distance(reals, imags, border_points, base_iter, tree)  # Boolean array of shape (N,)
 
-    # Create a random array for rejection sampling
-    random_vals = np.random.rand(len(reals))
+    # # Create a random array for rejection sampling
+    # random_vals = np.random.rand(len(reals))
 
-    # Accept points based on the mandelbrot border and rejection probability
-    accepted = inside | (random_vals > rejection_prob)  # Accept if inside or outside but not rejected
+    # # Accept points based on the mandelbrot border and rejection probability
+    # accepted = inside | (random_vals > rejection_prob)  # Accept if inside or outside but not rejected
 
-    # Compute weights
-    weights = np.zeros(len(reals))
-    weights[inside] = 1  # Inside points are always accepted with weight 1
-    weights[~inside] = 1 / (1 - rejection_prob)  # Weight for outside points
-    weights[~accepted] = 0  # Rejected points have zero weight
+    # # Compute weights
+    # weights = np.zeros(len(reals))
+    # weights[inside] = 1  # Inside points are always accepted with weight 1
+    # weights[~inside] = 1 / (1 - rejection_prob)  # Weight for outside points
+    # weights[~accepted] = 0  # Rejected points have zero weight
+
+    distances = min_distance(reals, imags, border_points, tree)
     
-
+    # Define weighting function: closer points get higher weight
+    max_distance = np.max(distances)
+    weights = (1 - (distances / max_distance))**1.4  # Normalize distances and invert for weights
+    weights = np.clip(weights, 0.01, 1.0)  # Avoid zero weights, clip to range [0.01, 1.0]
+    
+    # Iterations based on weights: higher weight means more iterations
+    iterations = np.maximum((weights * base_iter).astype(int), 2)
     return reals, imags, iterations, weights
 
+def resample_points(reals, imags, weights, num_samples, iters, rand):
+    """
+    Resample points based on weights to focus on more important regions.
+    """
+    np.random.seed(rand)
+    probabilities = weights / np.sum(weights)  # Normalize weights to probabilities
+    indices = np.random.choice(len(reals), size=num_samples, p=probabilities)
+    return reals[indices], imags[indices], probabilities[indices], iters[indices]
 
 def adaptive_mandelbrot_sampling(real, imag, border_points, rand, base_iter, tree=None):
     """ 
     Mandelbrot sampling with adaptive iterations based on border proximity
     """
-    waarde = np.sqrt(len(real))
-    rej = 0.05 if waarde > 1000 else 0.1 if waarde > 500 else 0.2 if waarde > 100 else 0.4
+    # waarde = np.sqrt(len(real))
+    # rej = 0.05 if waarde > 1000 else 0.1 if waarde > 500 else 0.2 if waarde > 100 else 0.4
             
-    reals, imags, iters, weights = weighting_scheme(real, imag, border_points, base_iter, rand, tree, rej)
+    # reals, imags, iters, weights = weighting_scheme(real, imag, border_points, base_iter, rand, tree, rej)
+    # number_outside = 0
+    # total_numbers = np.sum(weights)
+    num_samples = len(real)
+    reals, imags, iters, weights = weighting_scheme(real, imag, border_points, base_iter, tree, rand)
+    
+    # Resample points based on weights
+    reals, imags,sampling_prob, iters = resample_points(reals, imags, weights, num_samples, iters, rand)
+    normalized_weights = 1 / sampling_prob
+    normalized_weights /= np.sum(normalized_weights)  # Normalize to ensure total contribution sums up correctly
+    
+    total_numbers = np.sum(normalized_weights)
+    
+    total_numbers = np.sum(normalized_weights)
     number_outside = 0
-    total_numbers = np.sum(weights)
     c_points = reals + 1j * imags
     for i in range(len(reals)): 
         if weights[i] == 0:
@@ -364,17 +392,19 @@ def adaptive_mandelbrot_sampling(real, imag, border_points, rand, base_iter, tre
         for _ in range(iters[i]):
             z = z**2 + c
             if abs(z) > 2:
-                number_outside += weights[i]
+                number_outside += normalized_weights[i]
                 break
         
     return total_numbers, number_outside
 
-def get_border_points(grid, maxiter):
+
+def get_border_points(grid, maxiter, base):
     """
     Generates border points of the Mandelbrot set using high/low iteration comparison
     """
     real = np.linspace(-2.0, 1.0, grid)
     imag = np.linspace(-1.5, 1.5, grid)
+
     def mandelbrot_border(real_grid, imag_grid, max_iter):
         inside = []
         for i in real_grid:
@@ -391,7 +421,7 @@ def get_border_points(grid, maxiter):
 
     # Get two sets with different iteration counts
     accurate_set = mandelbrot_border(real, imag, maxiter)
-    quick_set = mandelbrot_border(real, imag, 15)
+    quick_set = mandelbrot_border(real, imag, base)
 
     # Get border points through set difference
     set_accurate = set(map(tuple, accurate_set))
