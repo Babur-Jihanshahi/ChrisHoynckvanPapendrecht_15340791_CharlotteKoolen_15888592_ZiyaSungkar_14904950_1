@@ -27,7 +27,7 @@ This project investigates the area of the Mandelbrot set using Monte Carlo integ
 
 ## File Overview
 
-- **`mandelbrot_set.ipynb`**
+- **`mandelbrot_sim.ipynb`**
   - Main script for computing the area of the Mandelbrot set.
   - Implements Monte Carlo integration with all sampling methods, including importance sampling.
   - Contains visualization code to plot differences in method, sample size and iteration bound. 
