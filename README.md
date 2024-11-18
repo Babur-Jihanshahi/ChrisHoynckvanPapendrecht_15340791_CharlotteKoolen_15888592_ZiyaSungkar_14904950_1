@@ -45,3 +45,8 @@ This project investigates the area of the Mandelbrot set using Monte Carlo integ
  
 
 ---
+
+## Authors
+ - Charlotte Koolen 15888592
+ - Chris Hoynck van Papendrecht 15340791
+ - Ziya Alim Sungkar 14904950
